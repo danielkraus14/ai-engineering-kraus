@@ -1,42 +1,66 @@
 import asyncio
-from typing import List, Optional
+from typing import List
+
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import Runnable
 
-# TODO 1: Define la clase Pydantic 'EntityExtraction' 
-# Debe tener: topic (str), entities (Lista de str), y sentiment_score (float entre 0 y 1)
+load_dotenv()
+
+PRIMARY_MODEL = "gemini-3.6-flash"
+FALLBACK_MODEL = "gemini-3.6-flash-lite"
+MAX_RETRY_ATTEMPTS = 3
+
+SYSTEM_PROMPT = "Analiza el texto y extrae las entidades."
+
+
 class EntityExtraction(BaseModel):
     topic: str
     entities: List[str]
     sentiment_score: float = Field(ge=0, le=1)
 
-async def run_validated_chain(text: str):
-    llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash")
-    
-    # TODO 2: Configura el modelo para usar la salida estructurada con Pydantic
-    # Tip: Usa el método .with_structured_output()
-    structured_llm = llm.with_structured_output(EntityExtraction)
-    
-    # TODO 3: Agrega una estrategia de reintento con .with_retry() 
-    # para que sea resiliente ante fallos de conexión (máximo 3 intentos).
-    resilient_llm = structured_llm.with_retry(stop_after_attempt=3)
-    
+
+def build_structured_llm(model_name: str) -> Runnable:
+    """Wrap a chat model so its output is validated against EntityExtraction."""
+    llm = ChatGoogleGenerativeAI(model=model_name)
+    return llm.with_structured_output(EntityExtraction)
+
+
+def build_resilient_chain() -> Runnable:
+    """Compose prompt | model with retry and a fallback model for resilience.
+
+    Retry handles transient network failures on the same model; the fallback
+    covers the case where the primary model keeps failing after all retries
+    (e.g. an outage), by switching to a different model still constrained
+    to the same structured output schema.
+    """
+    primary = build_structured_llm(PRIMARY_MODEL).with_retry(
+        stop_after_attempt=MAX_RETRY_ATTEMPTS
+    )
+    fallback = build_structured_llm(FALLBACK_MODEL).with_retry(
+        stop_after_attempt=MAX_RETRY_ATTEMPTS
+    )
+    resilient_llm = primary.with_fallbacks([fallback])
+
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "Analiza el texto y extrae las entidades."),
-        ("human", "{input}")
+        ("system", SYSTEM_PROMPT),
+        ("human", "{input}"),
     ])
-    
-    # TODO 4: Une el prompt con el resilient_llm y ejecuta asíncronamente
-    # No olvides manejar excepciones con try/except para capturar fallos de validación
-    resilient_chain = prompt | resilient_llm
+    return prompt | resilient_llm
+
+
+async def run_validated_chain(text: str) -> EntityExtraction | None:
+    chain = build_resilient_chain()
     try:
-        result = await resilient_chain.ainvoke({
-            "input": text
-        })
+        result = await chain.ainvoke({"input": text})
         print(result)
+        return result
     except Exception as e:
         print(f"Error: {e}")
+        return None
+
 
 if __name__ == "__main__":
     sample_text = "LangGraph es una extensión de LangChain para agentes cíclicos."

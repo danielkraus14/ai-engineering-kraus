@@ -38,3 +38,10 @@ Declarative LangChain Expression Language chain (`ChatPromptTemplate | ChatGoogl
 ```bash
 python gemini_client.py
 ```
+
+### `pydantic_response.py` — Structured output with retry
+LCEL chain that forces the model's output to validate against a Pydantic schema (`EntityExtraction`) via `.with_structured_output()`, wrapped with `.with_retry(stop_after_attempt=3)` for resilience against transient failures. Requires `GOOGLE_API_KEY` in `.env`.
+
+```bash
+python pydantic_response.py
+```

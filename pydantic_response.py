@@ -2,7 +2,7 @@ import asyncio
 from typing import List
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
@@ -17,9 +17,22 @@ SYSTEM_PROMPT = "Analiza el texto y extrae las entidades."
 
 
 class EntityExtraction(BaseModel):
-    topic: str
-    entities: List[str]
-    sentiment_score: float = Field(ge=0, le=1)
+    """Structured extraction of the main topic, named entities, and sentiment of a text."""
+
+    topic: str = Field(description="Short label (2-5 words) naming the main subject of the text")
+    entities: List[str] = Field(
+        description="Named entities (people, organizations, products, technologies) mentioned in the text"
+    )
+    sentiment_score: float = Field(
+        ge=0, le=1, description="Overall sentiment of the text, from 0 (very negative) to 1 (very positive)"
+    )
+
+    @field_validator("entities")
+    @classmethod
+    def entities_not_empty(cls, value: List[str]) -> List[str]:
+        if not value:
+            raise ValueError("entities must contain at least one item")
+        return value
 
 
 def build_structured_llm(model_name: str) -> Runnable:
@@ -37,10 +50,10 @@ def build_resilient_chain() -> Runnable:
     to the same structured output schema.
     """
     primary = build_structured_llm(PRIMARY_MODEL).with_retry(
-        stop_after_attempt=MAX_RETRY_ATTEMPTS
+        stop_after_attempt=MAX_RETRY_ATTEMPTS, wait_exponential_jitter=True
     )
     fallback = build_structured_llm(FALLBACK_MODEL).with_retry(
-        stop_after_attempt=MAX_RETRY_ATTEMPTS
+        stop_after_attempt=MAX_RETRY_ATTEMPTS, wait_exponential_jitter=True
     )
     resilient_llm = primary.with_fallbacks([fallback])
 
@@ -55,7 +68,7 @@ async def run_validated_chain(text: str) -> EntityExtraction | None:
     chain = build_resilient_chain()
     try:
         result = await chain.ainvoke({"input": text})
-        print(result)
+        print(result.model_dump_json(indent=2))
         return result
     except Exception as e:
         print(f"Error: {e}")

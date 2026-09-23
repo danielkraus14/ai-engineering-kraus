@@ -45,3 +45,23 @@ LCEL chain that forces the model's output to validate against a Pydantic schema 
 ```bash
 python pydantic_response.py
 ```
+
+### `schemas.py` + `chain.py` — Technical entity extraction pipeline
+Validated pipeline that extracts structured technical information (technologies mentioned, criticality level, technical summary) from a raw paragraph of text (e.g. an architecture description or error log).
+
+- `schemas.py` defines `TechnicalExtraction`, a Pydantic model with `tecnologias: List[str]` (must be non-empty, enforced via `@field_validator`), `nivel_de_criticidad: CriticalityLevel` (an enum restricted to `baja`/`media`/`alta`), and `resumen_tecnico: str`.
+- `chain.py` builds an LCEL chain (`prompt | model.with_structured_output(TechnicalExtraction)`) wrapped with `.with_retry(stop_after_attempt=3, wait_exponential_jitter=True)` and a `.with_fallbacks([...])` secondary model for resilience against malformed or incomplete JSON. The async `process_text(text: str)` function runs the chain via `.ainvoke()` and logs the start, successful validation, and any failure after retries are exhausted. Requires `GOOGLE_API_KEY` in `.env`.
+
+```bash
+python chain.py
+```
+
+Example output:
+
+```json
+{
+  "tecnologias": ["FastAPI", "Redis", "PostgreSQL"],
+  "nivel_de_criticidad": "alta",
+  "resumen_tecnico": "API con caché en Redis y persistencia en PostgreSQL; cuello de botella en conexiones concurrentes."
+}
+```

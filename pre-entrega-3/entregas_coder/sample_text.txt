@@ -1,0 +1,16 @@
+La  generación aumentada por recuperación (RAG) combina un modelo de lenguaje con una base de conocimiento externa.   En lugar de confiar solo en lo que el modelo aprendió durante el entrenamiento, el sistema busca los fragmentos más relevantes de los documentos de la empresa y los incluye en el prompt. Así las respuestas se apoyan en información actualizada y verificable.
+
+
+
+El primer paso de cualquier pipeline RAG es preparar los documentos.  Los textos que llegan desde PDFs, correos o páginas web suelen traer espacios duplicados,
+saltos de línea en medio de las oraciones y bloques en blanco que no aportan significado.    Limpiar ese ruido antes de fragmentar mejora la calidad de los chunks y reduce el costo, porque cada token innecesario se paga al generar embeddings.
+
+Un documento completo casi nunca cabe en la ventana de contexto de un modelo, y aunque cupiera, enviarlo entero sería caro y poco preciso. Por eso se divide en fragmentos. Un buen fragmento es lo bastante pequeño para ser específico y lo bastante grande para conservar el sentido de la idea que contiene. Si el corte cae en medio de una explicación, el significado se pierde y la búsqueda semántica devuelve resultados pobres.
+
+La longitud de los fragmentos debe medirse en tokens y no en caracteres. Los modelos cobran, limitan y procesan texto en tokens, y la relación entre caracteres y tokens cambia según el idioma: el español, el código fuente o los números generan más tokens por carácter que el inglés. Medir en caracteres puede producir fragmentos que superan el límite del modelo de embeddings sin que nadie lo note.
+
+El solapamiento, o overlap, repite el final de un fragmento al comienzo del siguiente. Su función es evitar que una idea quede partida justo en el límite entre dos chunks. Un overlap demasiado grande duplica información y encarece el índice; uno demasiado chico no protege el contexto. Un valor habitual ronda entre el diez y el quince por ciento del tamaño del fragmento.
+
+El separador recursivo intenta cortar primero por párrafos, luego por líneas, después por oraciones y, como último recurso, por palabras. De esta forma respeta la estructura natural del texto siempre que sea posible. Cuando un párrafo es más largo que el tamaño máximo, el algoritmo baja de nivel y lo divide por oraciones, y es allí donde el solapamiento entre fragmentos se vuelve visible.
+
+Una vez generados los fragmentos, cada uno se convierte en un vector mediante un modelo de embeddings y se guarda en una base vectorial. Cuando llega una consulta, se calcula su vector y se recuperan los fragmentos con mayor similitud coseno. La calidad de esos resultados depende directamente de cómo se limpió y se dividió el texto al principio del proceso.
